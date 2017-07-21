@@ -41,11 +41,66 @@
 	But we ignore cshtml files to avoid "Duplicate 'Content' items were included" error during publishing.
 	We also can use "CheckForDuplicateItemsContinueOnError" as per https://github.com/dotnet/sdk/blob/master/src/Tasks/Microsoft.NET.Build.Tasks/build/Microsoft.NET.Sdk.DefaultItems.targets -->
 	<Content Include="Plugins\**" CopyToPublishDirectory="PreserveNewest" Exclude="Plugins\**\*.cshtml" />
-	<Content Include="Themes\**" CopyToPublishDirectory="PreserveNewest" Exclude="Themes\**\*.cshtml" />
-	
+	<Content Include="Themes\**" CopyToPublishDirectory="PreserveNewest" Exclude="Themes\**\*.cshtml" />    	
+    
     <None Update="Areas\Admin\sitemap.config">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-  </ItemGroup>
+  </ItemGroup>  
+  
+  <!-- This task delete all sended files from all sended path if they exists -->
+  <UsingTask  
+    TaskName="NopClearPluginsPath"  
+    TaskFactory="CodeTaskFactory"  
+    AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.v4.0.dll" >  
+    <ParameterGroup>
+      <!-- Paths for search and delete files -->
+      <Paths ParameterType="System.String" Required="true" />  
+      <!-- File names without extensions for deleting -->
+      <FileNames ParameterType="System.String" Required="true" />  
+    </ParameterGroup>    
+    <Task>         
+      <Using Namespace="System.IO"/>  
+      <Code Type="Fragment" Language="cs">  
+        <![CDATA[
+        foreach (var pluginPath in Paths.Split(';'))
+        {
+            foreach (var fileName in FileNames.Split(';'))
+            {
+                //delete dll file if it exist in current path
+                var dllfilePath = Path.Combine(pluginPath, fileName+".dll");
+                if(File.Exists(dllfilePath))
+                    File.Delete(dllfilePath);
+                //delete pdb file if it exist in current path
+                var pdbfilePath = Path.Combine(pluginPath, fileName + ".pdb");
+                if (File.Exists(pdbfilePath))
+                    File.Delete(pdbfilePath);
+            }
+        }
+        return true;
+        ]]>  
+      </Code>  
+    </Task>  
+  </UsingTask>
 
+  <!-- This target execute after "Build" target  if "Configuration" is set to "Release" -->
+  <Target Name="NopWeb" AfterTargets="Build" Condition="'$(Configuration)'=='Release'">        
+    <ItemGroup>
+      <!-- Get all libraries from /bin/{version}/ directory -->
+      <BaseDllFiles Include="$(MSBuildProjectDirectory)\$(OutDir)\*.dll;" />
+      <!-- Get file name for all libraries from /bin/{version}/ directory-->
+      <DllFilesName Include="@(BaseDllFiles->'%(filename)')" />
+      <!-- Get plugins description files for next getting path for all plugins -->
+      <PluginsDescription Include="$(MSBuildProjectDirectory)\Plugins\**\Description.txt;" />
+      <!-- Get paths for all plugins -->
+      <PluginsFolders Include="@(PluginsDescription->'%(relativedir)')" />
+      <!-- Get all shadow copies of libraries -->
+      <ShadowCopiesLibraries Include="$(MSBuildProjectDirectory)\Plugins\bin\*.*" />
+    </ItemGroup>
+    <!-- Delete unnecessary libraries from plugins path -->
+    <NopClearPluginsPath Paths="@(PluginsFolders)" FileNames="@(DllFilesName)" />
+    <!-- Delete shadow copies of libraries -->
+    <Delete Files="@(ShadowCopiesLibraries)" />
+  </Target> 
+      
 </Project>
